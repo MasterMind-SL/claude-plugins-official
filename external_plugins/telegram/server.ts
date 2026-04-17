@@ -991,6 +991,27 @@ bot.catch(err => {
 // (MCP stdin keeps it running). Outbound tools kept working but the bot was
 // deaf to inbound messages until a full restart.
 void (async () => {
+  // External-poller mode (TELEGRAM_DISABLE_POLLING=1):
+  // Skip bot.start() so this plugin does NOT compete for getUpdates with an
+  // external supervisor process (e.g. a custom gateway) that owns inbound polling.
+  // Outbound MCP tools (reply, react, download_attachment, edit_message) keep
+  // working because they use bot.api.* direct HTTPS, independent of polling.
+  // botUsername is populated via getMe() so group-mention detection still works.
+  // Use case: a wrapper process manages session lifecycle and needs to poll
+  // Telegram itself for resilience (buffer messages while Claude restarts, etc).
+  if (process.env.TELEGRAM_DISABLE_POLLING === '1') {
+    const me = await bot.api.getMe().catch((e: Error) => {
+      process.stderr.write(`telegram channel: getMe failed: ${e.message}\n`)
+      return null
+    })
+    if (me) botUsername = me.username ?? ''
+    process.stderr.write(
+      `telegram channel: polling DISABLED via TELEGRAM_DISABLE_POLLING=1` +
+      (me ? ` (bot=@${botUsername})` : ' (getMe failed; botUsername empty)') + '\n'
+    )
+    return
+  }
+
   for (let attempt = 1; ; attempt++) {
     try {
       await bot.start({
